@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LUMA — Smart Desk Lamp</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: rgba(20, 28, 49, .88);
+      --panel2: #151e35;
+      --text: #f4f6ff;
+      --muted: #a4aec8;
+      --line: rgba(255,255,255,.10);
+      --accent: #9c8cff;
+      --accent2: #62e6cf;
+      --warning: #ffcc7a;
+      --danger: #ff8585;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      background:
+        radial-gradient(800px 500px at 8% 0%, rgba(124,104,255,.22), transparent 65%),
+        radial-gradient(700px 450px at 100% 20%, rgba(54,211,188,.12), transparent 65%),
+        var(--bg);
+    }
+    .shell { max-width: 1060px; margin: auto; padding: 28px 18px 50px; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:26px; }
+    .brand { display:flex; align-items:center; gap:12px; }
+    .logo {
+      width:46px; height:46px; display:grid; place-items:center; border-radius:15px;
+      background:linear-gradient(135deg,#a898ff,#5de3d0); color:#10162b; font-size:24px;
+      box-shadow:0 10px 35px rgba(124,104,255,.25);
+    }
+    h1 { font-size:clamp(22px,4vw,30px); letter-spacing:-.8px; margin:0; }
+    .subtitle { margin:4px 0 0; color:var(--muted); font-size:13px; }
+    .status { display:flex; align-items:center; gap:9px; border:1px solid var(--line); background:rgba(255,255,255,.04); padding:10px 13px; border-radius:999px; font-size:13px; color:var(--muted); }
+    .dot { width:9px; height:9px; border-radius:50%; background:#78819a; box-shadow:0 0 0 4px rgba(120,129,154,.12); }
+    .status.online { color:var(--accent2); }
+    .status.online .dot { background:var(--accent2); box-shadow:0 0 0 4px rgba(98,230,207,.13); }
+    .grid { display:grid; grid-template-columns:1.35fr .9fr; gap:18px; }
+    .card { border:1px solid var(--line); border-radius:24px; background:var(--panel); box-shadow:0 20px 60px rgba(0,0,0,.18); padding:24px; backdrop-filter:blur(16px); }
+    .card h2 { font-size:17px; margin:0 0 6px; letter-spacing:-.3px; }
+    .desc { color:var(--muted); font-size:13px; line-height:1.55; margin:0 0 22px; }
+    .channel { border:1px solid var(--line); background:rgba(255,255,255,.025); border-radius:18px; padding:18px; margin-top:14px; }
+    .channel-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .channel-name { display:flex; align-items:center; gap:12px; }
+    .bulb { width:42px; height:42px; border-radius:14px; display:grid; place-items:center; font-size:21px; }
+    .white .bulb { background:rgba(220,231,255,.12); }
+    .warm .bulb { background:rgba(255,190,99,.13); }
+    .channel h3 { margin:0; font-size:15px; }
+    .channel small { display:block; margin-top:4px; color:var(--muted); font-size:12px; }
+    .value { font-size:22px; font-weight:750; font-variant-numeric:tabular-nums; }
+    .range-row { display:flex; align-items:center; gap:13px; margin:21px 0 13px; }
+    input[type=range] { width:100%; accent-color:var(--accent); cursor:pointer; }
+    .warm input[type=range] { accent-color:#ffbf70; }
+    .range-label { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; }
+    button {
+      border:1px solid var(--line); background:rgba(255,255,255,.06); color:var(--text);
+      border-radius:12px; padding:10px 14px; cursor:pointer; font-weight:650; transition:.18s;
+    }
+    button:hover { transform:translateY(-1px); background:rgba(255,255,255,.11); }
+    button.primary { background:linear-gradient(135deg,#a393ff,#7567ed); border:0; color:#11152a; }
+    button:disabled { opacity:.45; cursor:not-allowed; transform:none; }
+    .presets { display:flex; gap:8px; flex-wrap:wrap; margin-top:18px; }
+    .presets button { font-size:12px; padding:9px 12px; }
+    .field { margin:14px 0; }
+    label { display:block; font-size:12px; color:var(--muted); margin-bottom:7px; }
+    input[type=text], input[type=password], input[type=number] {
+      width:100%; padding:12px 13px; border-radius:12px; border:1px solid var(--line);
+      background:#0d1427; color:var(--text); outline:none; font:inherit; font-size:14px;
+    }
+    input:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(156,140,255,.12); }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+    .actions { display:flex; gap:9px; flex-wrap:wrap; margin-top:18px; }
+    .hint { color:var(--muted); font-size:12px; line-height:1.6; margin:16px 0 0; }
+    .notice { border:1px solid rgba(255,204,122,.25); background:rgba(255,204,122,.07); color:#f5d7a5; padding:13px 14px; border-radius:14px; font-size:12px; line-height:1.55; margin-top:17px; }
+    .log { margin-top:18px; padding:12px; border-radius:12px; background:#090e1b; color:#aab7d4; font:12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; min-height:46px; overflow-wrap:anywhere; }
+    .footer { text-align:center; color:#77829e; font-size:12px; margin-top:22px; }
+    @media (max-width:760px) { .grid { grid-template-columns:1fr; } header { align-items:flex-start; flex-direction:column; } .card { padding:19px; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="brand">
+        <div class="logo">✦</div>
+        <div>
+          <h1>LUMA <span style="font-weight:400;color:#9ba7c4">/ Smart Desk Lamp</span></h1>
+          <p class="subtitle">Two-channel lighting control · ESP32 + MQTT</p>
+        </div>
+      </div>
+      <div class="status" id="status"><span class="dot"></span><span id="statusText">Not connected</span></div>
+    </header>
+
+    <main class="grid">
+      <section class="card">
+        <h2>Your lighting</h2>
+        <p class="desc">Adjust each LED channel independently. Changes publish to your ESP32 over MQTT.</p>
+
+        <div class="channel white">
+          <div class="channel-top">
+            <div class="channel-name"><div class="bulb">☼</div><div><h3>Cool / White</h3><small>White LED channel</small></div></div>
+            <div class="value"><span id="whiteValue">0</span><span style="font-size:13px;color:var(--muted)"> / 255</span></div>
+          </div>
+          <div class="range-row"><span style="color:var(--muted)">☾</span><input id="whiteSlider" type="range" min="0" max="255" value="0" aria-label="White LED brightness"><span>☼</span></div>
+          <div class="range-label"><span>Off</span><span>Full brightness</span></div>
+        </div>
+
+        <div class="channel warm">
+          <div class="channel-top">
+            <div class="channel-name"><div class="bulb">☀</div><div><h3>Warm White</h3><small>Warm LED channel</small></div></div>
+            <div class="value"><span id="warmValue">0</span><span style="font-size:13px;color:var(--muted)"> / 255</span></div>
+          </div>
+          <div class="range-row"><span style="color:var(--muted)">☾</span><input id="warmSlider" type="range" min="0" max="255" value="0" aria-label="Warm LED brightness"><span>☀</span></div>
+          <div class="range-label"><span>Off</span><span>Full brightness</span></div>
+        </div>
+
+        <div class="presets">
+          <button id="allOff">All off</button>
+          <button id="study">Study · 220 / 35</button>
+          <button id="relax">Relax · 25 / 210</button>
+          <button id="bright">Bright · 255 / 255</button>
+        </div>
+        <p class="hint">Sliders send values from 0 to 255. Presets send to both channels. You must connect to MQTT before commands can be sent.</p>
+      </section>
+
+      <aside class="card">
+        <h2>MQTT connection</h2>
+        <p class="desc">Use the same public test broker configured in the ESP32 firmware.</p>
+        <form id="settingsForm">
+          <div class="field">
+            <label for="host">Broker host</label>
+            <input id="host" type="text" value="broker.emqx.io" autocomplete="off" required>
+          </div>
+          <div class="two">
+            <div class="field">
+              <label for="port">WebSocket port</label>
+              <input id="port" type="number" min="1" max="65535" value="8083" required>
+            </div>
+            <div class="field">
+              <label for="path">WebSocket path</label>
+              <input id="path" type="text" value="/mqtt" required>
+            </div>
+          </div>
+          <div class="field">
+            <label for="username">Username (leave blank for public test broker)</label>
+            <input id="username" type="text" autocomplete="username">
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <input id="password" type="password" autocomplete="current-password">
+          </div>
+          <div class="field">
+            <label for="clientId">Browser client ID (must be unique)</label>
+            <input id="clientId" type="text" value="" required>
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit" id="connectBtn">Connect</button>
+            <button type="button" id="disconnectBtn">Disconnect</button>
+            <button type="button" id="saveBtn">Save settings</button>
+          </div>
+        </form>
+        <div class="log" id="log" role="status">Ready. Enter settings and click Connect.</div>
+        <div class="notice"><strong>Public broker warning:</strong> this broker is for testing. Other people may see or publish messages on public topics. Do not use it for private data or as a secure permanent control system.</div>
+        <p class="hint">Settings are saved in this browser's localStorage. They are not encrypted. Avoid saving passwords on shared computers. For HTTPS-hosted pages, use a secure WSS endpoint rather than plain WS.</p>
+      </aside>
+    </main>
+    <div class="footer">LUMA · Local dashboard interface · MQTT topics: desk-lamp/a91c/…</div>
+  </div>
+
+<script>
+(() => {
+  const TOPICS = {
+    whiteSet: 'desk-lamp/a91c/white/set',
+    warmSet: 'desk-lamp/a91c/warm/set',
+    whiteState: 'desk-lamp/a91c/white/state',
+    warmState: 'desk-lamp/a91c/warm/state'
+  };
+  const $ = id => document.getElementById(id);
+  const status = $('status');
+  const statusText = $('statusText');
+  const logEl = $('log');
+  const connectBtn = $('connectBtn');
+  const disconnectBtn = $('disconnectBtn');
+  let client = null;
+  let whiteTimer = null;
+  let warmTimer = null;
+
+  // Unique browser client ID, generated once and retained in this browser.
+  const idKey = 'luma_mqtt_client_id';
+  let savedId = localStorage.getItem(idKey);
+  if (!savedId) {
+    savedId = 'luma-web-' + Math.random().toString(16).slice(2, 10);
+    localStorage.setItem(idKey, savedId);
+  }
+  $('clientId').value = savedId;
+
+  function log(message) {
+    const time = new Date().toLocaleTimeString();
+    logEl.textContent = `${time} — ${message}`;
+  }
+  function setStatus(online, text) {
+    status.classList.toggle('online', online);
+    statusText.textContent = text;
+    connectBtn.disabled = !!(client && client.connected);
+  }
+  function currentSettings() {
+    let path = $('path').value.trim() || '/mqtt';
+    if (!path.startsWith('/')) path = '/' + path;
+    return {
+      host: $('host').value.trim(),
+      port: Number($('port').value),
+      path,
+      username: $('username').value,
+      password: $('password').value,
+      clientId: $('clientId').value.trim()
+    };
+  }
+  function saveSettings(showMessage = true) {
+    const s = currentSettings();
+    localStorage.setItem('luma_mqtt_settings', JSON.stringify(s));
+    localStorage.setItem(idKey, s.clientId);
+    if (showMessage) log('Settings saved in this browser.');
+  }
+  function loadSettings() {
+    try {
+      const s = JSON.parse(localStorage.getItem('luma_mqtt_settings') || '{}');
+      if (s.host) $('host').value = s.host;
+      if (s.port) $('port').value = s.port;
+      if (s.path) $('path').value = s.path;
+      if (s.username) $('username').value = s.username;
+      if (s.password) $('password').value = s.password;
+      if (s.clientId) $('clientId').value = s.clientId;
+    } catch (_) {}
+  }
+  function publish(topic, value) {
+    if (!client || !client.connected) {
+      log('Not connected. Connect to MQTT before changing brightness.');
+      return false;
+    }
+    client.publish(topic, String(value), { qos: 0, retain: false }, err => {
+      if (err) log('Publish failed: ' + err.message);
+    });
+    return true;
+  }
+  function sendSlider(which, immediate = false) {
+    const slider = $(which + 'Slider');
+    const value = Number(slider.value);
+    $(which + 'Value').textContent = value;
+    const topic = which === 'white' ? TOPICS.whiteSet : TOPICS.warmSet;
+    const timerName = which === 'white' ? 'whiteTimer' : 'warmTimer';
+    clearTimeout(which === 'white' ? whiteTimer : warmTimer);
+    const send = () => publish(topic, value);
+    if (immediate) send();
+    else if (which === 'white') whiteTimer = setTimeout(send, 100);
+    else warmTimer = setTimeout(send, 100);
+  }
+  function preset(white, warm) {
+    $('whiteSlider').value = white;
+    $('warmSlider').value = warm;
+    $('whiteValue').textContent = white;
+    $('warmValue').textContent = warm;
+    publish(TOPICS.whiteSet, white);
+    publish(TOPICS.warmSet, warm);
+  }
+  function disconnect() {
+    if (client) {
+      try { client.end(true); } catch (_) {}
+      client = null;
+    }
+    setStatus(false, 'Not connected');
+    log('Disconnected.');
+  }
+  function connect() {
+    if (!window.mqtt) {
+      log('MQTT library did not load. Check internet access and reload this page.');
+      return;
+    }
+    if (client) {
+      try { client.end(true); } catch (_) {}
+      client = null;
+    }
+    const s = currentSettings();
+    if (!s.host || !s.port || !s.clientId) {
+      log('Please fill in broker host, port, and client ID.');
+      return;
+    }
+    saveSettings(false);
+    const securePage = location.protocol === 'https:';
+    const scheme = securePage ? 'wss' : 'ws';
+    const url = `${scheme}://${s.host}:${s.port}${s.path}`;
+    setStatus(false, 'Connecting…');
+    log('Connecting to ' + url);
+    const options = {
+      clientId: s.clientId,
+      clean: true,
+      connectTimeout: 10000,
+      reconnectPeriod: 3000,
+      keepalive: 30
+    };
+    if (s.username) options.username = s.username;
+    if (s.password) options.password = s.password;
+    try {
+      client = mqtt.connect(url, options);
+      client.on('connect', () => {
+        setStatus(true, 'MQTT connected');
+        log('Connected. Subscribing to lamp state topics…');
+        client.subscribe([TOPICS.whiteState, TOPICS.warmState], err => {
+          if (err) log('Connected, but subscribe failed: ' + err.message);
+          else log('Connected and subscribed. Move a slider to send brightness.');
+        });
+      });
+      client.on('reconnect', () => {
+        setStatus(false, 'Reconnecting…');
+        log('Connection lost; trying to reconnect…');
+      });
+      client.on('close', () => setStatus(false, 'Disconnected'));
+      client.on('offline', () => {
+        setStatus(false, 'Offline');
+        log('Browser MQTT client is offline.');
+      });
+      client.on('error', err => {
+        setStatus(false, 'Connection error');
+        log('MQTT error: ' + (err && err.message ? err.message : String(err)));
+      });
+      client.on('message', (topic, payload) => {
+        const value = Number(payload.toString());
+        if (!Number.isFinite(value)) return;
+        if (topic === TOPICS.whiteState && value >= 0 && value <= 255) {
+          $('whiteSlider').value = value;
+          $('whiteValue').textContent = value;
+        } else if (topic === TOPICS.warmState && value >= 0 && value <= 255) {
+          $('warmSlider').value = value;
+          $('warmValue').textContent = value;
+        }
+      });
+    } catch (err) {
+      setStatus(false, 'Connection error');
+      log('Could not start MQTT connection: ' + err.message);
+    }
+  }
+
+  $('settingsForm').addEventListener('submit', e => { e.preventDefault(); connect(); });
+  $('disconnectBtn').addEventListener('click', disconnect);
+  $('saveBtn').addEventListener('click', () => saveSettings(true));
+  $('whiteSlider').addEventListener('input', () => sendSlider('white'));
+  $('warmSlider').addEventListener('input', () => sendSlider('warm'));
+  $('whiteSlider').addEventListener('change', () => sendSlider('white', true));
+  $('warmSlider').addEventListener('change', () => sendSlider('warm', true));
+  $('allOff').addEventListener('click', () => preset(0, 0));
+  $('study').addEventListener('click', () => preset(220, 35));
+  $('relax').addEventListener('click', () => preset(25, 210));
+  $('bright').addEventListener('click', () => preset(255, 255));
+
+  loadSettings();
+  setStatus(false, 'Not connected');
+})();
+</script>
+</body>
+</html>
